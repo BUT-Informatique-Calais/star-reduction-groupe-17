@@ -45,11 +45,11 @@ else:
 
 # Define a kernel for erosion
 kernel = np.ones((3,3), np.uint8)
-# Perform erosion
-eroded_image = cv.erode(image, kernel, iterations=1)
+# Perform dilate
+dilated_image = cv.dilate(image, kernel, iterations=2)
 
-# Save the eroded image 
-cv.imwrite('./results/eroded.png', eroded_image)
+# Save the dilated image 
+cv.imwrite('./results/dilated.png', dilated_image)
 
 # Close the file
 hdul.close()
