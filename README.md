@@ -1,6 +1,12 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/zP0O23M7)
+# Star Reduction in astrophotology
+*Authors*: Lara Fremy, Antoine Lutsen, Antoine Molinaro (TD3)
 
 # Project Documentation
+*Presentation*:
+This project is a Star Reduction tool for .fits astronomic pictures treatement. The goal is to reduce brillant stars apparent diameter without altering the background nebulous structures
+
+*Problem stateme,t*:
+In astrophotography, bright stars are often "bloated" by atmospheric diffusion and PSF (Point Spread Function). When applying histogram stretches to reveal nebula details, these stars can saturate the image and mask important structures.
 
 ## Installation
 
@@ -24,6 +30,8 @@ pip install -r requirements.txt
 Or install dependencies manually:
 ```bash
 pip install [package-name]
+
+pip install astropy photutils opencv-python numpy matplotlib
 ```
 
 ## Usage
