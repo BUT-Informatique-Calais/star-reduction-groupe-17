@@ -131,7 +131,7 @@ axes[0, 1].scatter(
     sources["ycentroid"],
     s=40,
     facecolors="none",
-    edgecolors="red",
+    edgecolors="green",
     linewidths=0.8
 )
 axes[0, 1].set_title(f"Étoiles détectées ({len(sources)})")
