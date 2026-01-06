@@ -105,7 +105,7 @@ axes[1].scatter(
     sources['ycentroid'],
     s=50,
     facecolors='none',
-    edgecolors='red',
+    edgecolors='green',
     linewidths=1
 )
 axes[1].set_title(f'Detected stars ({len(sources)})')
