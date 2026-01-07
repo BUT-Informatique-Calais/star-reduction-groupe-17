@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load previously generated images
-original = cv.imread('./examples/linear.fits', cv.IMREAD_UNCHANGED)
+
+original = cv.imread('./results/original.png', cv.IMREAD_UNCHANGED)
 eroded = cv.imread('./results/eroded.png', cv.IMREAD_UNCHANGED)
 mask = cv.imread('./results/star_mask.png', cv.IMREAD_GRAYSCALE)
 
@@ -33,10 +34,11 @@ final = (mask_blurred * strength) * eroded_f + (1.0 - mask_blurred * strength) *
 final_uint8 = np.clip(final * 255, 0, 255).astype(np.uint8)
 
 # Save the result
-cv.imwrite('./results/final.fits', final_uint8)
+
+cv.imwrite('./results/final.png', final_uint8)
 
 print("Localized reduction completed.")
-print("Generated file: ./results/final.fits")
+print("Generated file: ./results/final.png")
 
 
 # présence Antoine Lutsen
