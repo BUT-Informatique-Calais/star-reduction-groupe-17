@@ -39,6 +39,3 @@ cv.imwrite('./results/final.png', final_uint8)
 
 print("Localized reduction completed.")
 print("Generated file: ./results/final.png")
-
-
-# présence Antoine Lutsen
