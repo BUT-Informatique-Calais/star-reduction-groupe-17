@@ -2,7 +2,7 @@ import cv2 as cv
 import numpy as np
 
 original = cv.imread('./results/original.png')
-final = cv.imread('./results/final.png')
+final = cv.imread('./results/reduction_max.png')
 
 if original.shape != final.shape:
     final = cv.resize(final, (original.shape[1], original.shape[0]))
