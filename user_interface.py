@@ -5,7 +5,6 @@ import numpy as np
 from astropy.io import fits
 from photutils.detection import DAOStarFinder
 from astropy.stats import sigma_clipped_stats
-from scipy.ndimage import gaussian_filter
 import cv2 as cv
 
 class StarReductionGUI:
@@ -18,20 +17,23 @@ class StarReductionGUI:
         self.original_data = None
         self.luminance = None
         self.current_preview = None
+        self.show_original = False
         
         # Default parameters
         self.fwhm_var = tk.DoubleVar(value=3.0)
         self.threshold_var = tk.DoubleVar(value=5.0)
-        self.radius_min_var = tk.DoubleVar(value=3.0)
-        self.radius_max_var = tk.DoubleVar(value=10.0)
-        self.attenuation_var = tk.DoubleVar(value=0.6)
-        self.blur_sigma_var = tk.DoubleVar(value=1.5)
+        self.erosion_iter_var = tk.IntVar(value=6)
+        self.ratio_min_var = tk.DoubleVar(value=0.25)
         
         # Cache for optimization
         self.detected_sources = None
-        self.base_mask = None
         self.update_timer = None
         self.stats_cache = None
+        
+        # Comparison mode
+        self.comparison_mode = tk.StringVar(value="result")
+        self.blink_running = False
+        self.blink_state = False
         
         self.setup_ui()
         
@@ -61,6 +63,62 @@ class StarReductionGUI:
             padx=20,
             pady=8
         ).pack(side=tk.LEFT, padx=5)
+        
+        # Comparison mode buttons
+        comparison_frame = tk.Frame(top_frame, bg='#2b2b2b')
+        comparison_frame.pack(side=tk.LEFT, padx=20)
+        
+        tk.Label(
+            comparison_frame,
+            text="View:",
+            bg='#2b2b2b',
+            fg='#ffffff',
+            font=('Arial', 9, 'bold')
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            comparison_frame,
+            text="Original",
+            command=lambda: self.set_view_mode("original"),
+            bg='#555555',
+            fg='white',
+            font=('Arial', 9),
+            padx=15,
+            pady=5
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            comparison_frame,
+            text="Result",
+            command=lambda: self.set_view_mode("result"),
+            bg='#555555',
+            fg='white',
+            font=('Arial', 9),
+            padx=15,
+            pady=5
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            comparison_frame,
+            text="Side by Side",
+            command=lambda: self.set_view_mode("side_by_side"),
+            bg='#555555',
+            fg='white',
+            font=('Arial', 9),
+            padx=15,
+            pady=5
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            comparison_frame,
+            text="Blink",
+            command=self.toggle_blink,
+            bg='#555555',
+            fg='white',
+            font=('Arial', 9),
+            padx=15,
+            pady=5
+        ).pack(side=tk.LEFT, padx=2)
         
         self.status_label = tk.Label(
             top_frame, 
@@ -108,40 +166,21 @@ class StarReductionGUI:
             self.on_detection_param_change
         )
         
-        # Mask Section
-        self.create_section(left_panel, "Mask Settings")
-        
-        self.create_slider(
-            left_panel,
-            "Min Radius:",
-            self.radius_min_var,
-            1.0, 10.0, 0.5,
-            self.schedule_update
-        )
-        
-        self.create_slider(
-            left_panel,
-            "Max Radius:",
-            self.radius_max_var,
-            5.0, 30.0, 1.0,
-            self.schedule_update
-        )
-        
-        self.create_slider(
-            left_panel,
-            "Blur Sigma:",
-            self.blur_sigma_var,
-            0.5, 5.0, 0.1,
-            self.schedule_update
-        )
-        
         # Reduction Section
-        self.create_section(left_panel, "Reduction Strength")
+        self.create_section(left_panel, "Reduction Settings")
         
         self.create_slider(
             left_panel,
-            "Attenuation:",
-            self.attenuation_var,
+            "Erosion Iterations:",
+            self.erosion_iter_var,
+            1, 12, 1,
+            self.schedule_update
+        )
+        
+        self.create_slider(
+            left_panel,
+            "Ratio Min:",
+            self.ratio_min_var,
             0.0, 1.0, 0.05,
             self.schedule_update
         )
@@ -199,13 +238,22 @@ class StarReductionGUI:
         )
         label_widget.pack(anchor='w')
         
-        value_label = tk.Label(
-            frame,
-            text=f"{variable.get():.2f}",
-            bg='#3a3a3a',
-            fg='#ffffff',
-            font=('Arial', 9, 'bold')
-        )
+        if isinstance(variable, tk.IntVar):
+            value_label = tk.Label(
+                frame,
+                text=f"{variable.get()}",
+                bg='#3a3a3a',
+                fg='#ffffff',
+                font=('Arial', 9, 'bold')
+            )
+        else:
+            value_label = tk.Label(
+                frame,
+                text=f"{variable.get():.2f}",
+                bg='#3a3a3a',
+                fg='#ffffff',
+                font=('Arial', 9, 'bold')
+            )
         value_label.pack(anchor='e')
         
         slider = tk.Scale(
@@ -225,7 +273,10 @@ class StarReductionGUI:
         slider.pack(fill=tk.X)
         
     def on_slider_change(self, label, variable, callback):
-        label.config(text=f"{variable.get():.2f}")
+        if isinstance(variable, tk.IntVar):
+            label.config(text=f"{variable.get()}")
+        else:
+            label.config(text=f"{variable.get():.2f}")
         if callback:
             callback()
     
@@ -238,9 +289,36 @@ class StarReductionGUI:
     def on_detection_param_change(self):
         """Force full recalculation when detection params change"""
         self.detected_sources = None
-        self.base_mask = None
         self.stats_cache = None
         self.schedule_update()
+    
+    def set_view_mode(self, mode):
+        """Change view mode"""
+        if self.blink_running:
+            self.blink_running = False
+        self.comparison_mode.set(mode)
+        self.update_display()
+    
+    def toggle_blink(self):
+        """Toggle blink animation"""
+        self.blink_running = not self.blink_running
+        if self.blink_running:
+            self.comparison_mode.set("blink")
+            self.blink_animation()
+    
+    def blink_animation(self):
+        """Animate blinking between original and result"""
+        if not self.blink_running or self.original_data is None:
+            return
+        
+        self.blink_state = not self.blink_state
+        
+        if self.blink_state and self.current_preview is not None:
+            self.display_image(self.normalize_image(self.current_preview))
+        else:
+            self.display_image(self.normalize_image(self.original_data))
+        
+        self.root.after(500, self.blink_animation)
     
     def load_fits(self):
         filename = filedialog.askopenfilename(
@@ -260,7 +338,8 @@ class StarReductionGUI:
             if self.original_data.ndim == 3:
                 if self.original_data.shape[0] == 3:
                     self.original_data = np.transpose(self.original_data, (1, 2, 0))
-                self.luminance = np.mean(self.original_data, axis=2)
+                R, G, B = self.original_data[:, :, 0], self.original_data[:, :, 1], self.original_data[:, :, 2]
+                self.luminance = (R + G + B) / 3.0
             else:
                 self.luminance = self.original_data.copy()
             
@@ -269,7 +348,7 @@ class StarReductionGUI:
                 fg='#50c878'
             )
             
-            self.display_image(self.normalize_image(self.original_data))
+            self.update_display()
             self.update_preview_fast()
             
         except Exception as e:
@@ -277,25 +356,19 @@ class StarReductionGUI:
     
     def normalize_image(self, img):
         if img.ndim == 3:
-            lum = np.mean(img, axis=2)
-            p1, p99 = np.percentile(lum[lum > 0], (1, 99))
-            img_norm = np.zeros_like(img)
-            for i in range(3):
-                channel = img[:, :, i]
-                img_norm[:, :, i] = np.clip((channel - p1) / (p99 - p1), 0, 1)
+            img_norm = (img - img.min()) / (img.max() - img.min() + 1e-6)
         else:
-            p1, p99 = np.percentile(img[img > 0], (1, 99))
-            img_norm = np.clip((img - p1) / (p99 - p1), 0, 1)
+            img_norm = (img - img.min()) / (img.max() - img.min() + 1e-6)
         
-        return img_norm
+        return np.clip(img_norm, 0, 1)
     
     def update_preview_fast(self):
-        """Optimized preview update with caching"""
+        """Optimized preview update with color-preserving reduction"""
         if self.original_data is None:
             return
         
         try:
-            # Detect stars only if not cached or params changed
+            # Detect stars only if not cached
             if self.detected_sources is None:
                 mean, median, std = sigma_clipped_stats(self.luminance, sigma=3.0)
                 self.stats_cache = (mean, median, std)
@@ -313,48 +386,59 @@ class StarReductionGUI:
             sources = self.detected_sources
             mean, median, std = self.stats_cache
             
-            # Create mask (lighter computation)
-            mask = np.zeros(self.luminance.shape, dtype=np.float32)
-            y_grid, x_grid = np.ogrid[:self.luminance.shape[0], :self.luminance.shape[1]]
+            # Normalize luminance for reduction
+            L_norm = (self.luminance - self.luminance.min()) / (self.luminance.max() - self.luminance.min())
+            L_uint8 = (L_norm * 255).astype(np.uint8)
+            L_reduced = L_uint8.copy()
             
+            # Apply erosion on each star
             for star in sources:
-                xc, yc = star["xcentroid"], star["ycentroid"]
-                star_flux = star["flux"]
+                x = int(star["xcentroid"])
+                y = int(star["ycentroid"])
+                flux = star["flux"]
                 
-                radius = np.clip(
-                    self.radius_min_var.get() + star_flux / 10000.0,
-                    self.radius_min_var.get(),
-                    self.radius_max_var.get()
-                )
+                diameter = int(np.clip(2.0 * np.sqrt(flux), 3, 25))
+                if diameter % 2 == 0:
+                    diameter += 1
                 
-                distance = np.sqrt((x_grid - xc)**2 + (y_grid - yc)**2)
-                star_mask = np.maximum(0, 1.0 - distance / radius)
-                mask = np.maximum(mask, star_mask)
+                half = diameter // 2
+                y1, y2 = max(0, y - half), min(L_reduced.shape[0], y + half + 1)
+                x1, x2 = max(0, x - half), min(L_reduced.shape[1], x + half + 1)
+                
+                patch = L_reduced[y1:y2, x1:x2].copy()
+                
+                kernel_size = max(3, diameter // 2)
+                if kernel_size % 2 == 0:
+                    kernel_size += 1
+                
+                kernel = np.ones((kernel_size, kernel_size), np.uint8)
+                
+                for _ in range(self.erosion_iter_var.get()):
+                    patch = cv.erode(patch, kernel, iterations=1)
+                    if np.count_nonzero(patch > 15) <= 1:
+                        break
+                
+                L_reduced[y1:y2, x1:x2] = patch
             
-            # Blur mask
-            mask = gaussian_filter(mask, sigma=self.blur_sigma_var.get())
+            # Calculate ratio for color preservation
+            L_reduced_f = L_reduced.astype(np.float32) / 255.0
+            L_orig_f = L_uint8.astype(np.float32) / 255.0
             
-            # Apply reduction
-            attenuation = self.attenuation_var.get()
+            ratio = L_reduced_f / (L_orig_f + 1e-6)
+            ratio = np.clip(ratio, self.ratio_min_var.get(), 1.0)
+            ratio = cv.GaussianBlur(ratio, (5, 5), 0)
             
+            # Apply ratio to preserve colors
             if self.original_data.ndim == 3:
-                data_reduced = self.original_data.copy()
-                for i in range(3):
-                    channel = self.original_data[:, :, i]
-                    bg_channel = gaussian_filter(channel, sigma=20)
-                    data_reduced[:, :, i] = (
-                        channel * (1.0 - mask * attenuation) + 
-                        bg_channel * mask * attenuation * 0.3
-                    )
+                out = np.zeros_like(self.original_data)
+                out[:, :, 0] = self.original_data[:, :, 0] * ratio
+                out[:, :, 1] = self.original_data[:, :, 1] * ratio
+                out[:, :, 2] = self.original_data[:, :, 2] * ratio
             else:
-                bg = gaussian_filter(self.original_data, sigma=20)
-                data_reduced = (
-                    self.original_data * (1.0 - mask * attenuation) + 
-                    bg * mask * attenuation * 0.3
-                )
+                out = self.luminance * ratio
             
-            self.current_preview = data_reduced
-            self.display_image(self.normalize_image(data_reduced))
+            self.current_preview = out
+            self.update_display()
             
             # Update stats
             self.stats_label.config(
@@ -370,6 +454,98 @@ class StarReductionGUI:
     def update_preview(self):
         """Legacy method - redirects to optimized version"""
         self.update_preview_fast()
+    
+    def update_display(self):
+        """Update display based on current mode"""
+        if self.original_data is None:
+            return
+        
+        mode = self.comparison_mode.get()
+        
+        if mode == "original":
+            self.display_image(self.normalize_image(self.original_data))
+        elif mode == "result":
+            if self.current_preview is not None:
+                self.display_image(self.normalize_image(self.current_preview))
+            else:
+                self.display_image(self.normalize_image(self.original_data))
+        elif mode == "side_by_side":
+            self.display_side_by_side()
+    
+    def display_side_by_side(self):
+        """Display original and processed images side by side"""
+        if self.original_data is None:
+            return
+        
+        original_norm = self.normalize_image(self.original_data)
+        
+        if self.current_preview is not None:
+            processed_norm = self.normalize_image(self.current_preview)
+        else:
+            processed_norm = original_norm
+        
+        # Convert to displayable format
+        if original_norm.ndim == 3:
+            orig_display = (original_norm * 255).astype(np.uint8)
+            proc_display = (processed_norm * 255).astype(np.uint8)
+        else:
+            orig_display = (original_norm * 255).astype(np.uint8)
+            proc_display = (processed_norm * 255).astype(np.uint8)
+            orig_display = cv.cvtColor(orig_display, cv.COLOR_GRAY2RGB)
+            proc_display = cv.cvtColor(proc_display, cv.COLOR_GRAY2RGB)
+        
+        # Resize to fit half canvas
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        
+        if canvas_width > 1 and canvas_height > 1:
+            h, w = orig_display.shape[:2]
+            scale = min((canvas_width / 2) / w, canvas_height / h) * 0.9
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            
+            orig_display = cv.resize(orig_display, (new_w, new_h), interpolation=cv.INTER_AREA)
+            proc_display = cv.resize(proc_display, (new_w, new_h), interpolation=cv.INTER_AREA)
+        
+        # Add labels
+        orig_labeled = self.add_label_to_image(orig_display, "BEFORE")
+        proc_labeled = self.add_label_to_image(proc_display, "AFTER")
+        
+        # Combine side by side
+        combined = np.hstack([orig_labeled, proc_labeled])
+        
+        # Convert to PhotoImage
+        img_pil = Image.fromarray(combined)
+        self.photo = ImageTk.PhotoImage(img_pil)
+        
+        # Display on canvas
+        self.canvas.delete("all")
+        self.canvas.create_image(
+            canvas_width // 2,
+            canvas_height // 2,
+            image=self.photo,
+            anchor=tk.CENTER
+        )
+    
+    def add_label_to_image(self, img, text):
+        """Add a label at the top of an image"""
+        img_copy = img.copy()
+        h, w = img_copy.shape[:2]
+        
+        # Add white rectangle at top
+        cv.rectangle(img_copy, (0, 0), (w, 40), (255, 255, 255), -1)
+        
+        # Add text
+        font = cv.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.8
+        thickness = 2
+        text_size = cv.getTextSize(text, font, font_scale, thickness)[0]
+        text_x = (w - text_size[0]) // 2
+        text_y = 28
+        
+        cv.putText(img_copy, text, (text_x, text_y), font, font_scale, (0, 0, 0), thickness)
+        
+        return img_copy
     
     def display_image(self, img):
         # Convert to displayable format
