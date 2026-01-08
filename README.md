@@ -54,4 +54,50 @@ Example files are located in the `examples/` directory. You can run the scripts 
 - Example 3 : `examples/test_M31_raw.fits` (Color FITS image file for testing)
 
 
+# Implemented Methods
+
+# Phase 1: Global Erosion
+Using OpenCV's morphological erosion operator to uniformly reduce all bright structures in the image.
+
+It's a simple and fast implementation wich Effectively reduces star size.
+
+But it alters nebula details. We also face a loss of information in low-luminosity areas.
+
+## Phase 2: Selective Detection and Masking
+
+# Step A: Star Mask Creation
+Star mask uses DAOStarFinder for automatic star identification:
+
+*How does it works?*
+Statistics calculation - Mean, median, and standard deviation with outlier removal (sigma_clipped_stats)
+Source detection - Identifying brightness peaks exceeding threshold (5σ above background)
+Mask generation - Creating circular zones around each detected star
+
+Pros:
+
+This system alows precise detection based on statistical criteria.
+The binary mask enabling targeted processing alows preservation of nebula regions
+# Implemented Methods
+
+# Phase 1: Global Erosion
+Using OpenCV's morphological erosion operator to uniformly reduce all bright structures in the image.
+
+It's a simple and fast implementation wich Effectively reduces star size.
+
+But it alters nebula details. We also face a loss of information in low-luminosity areas.
+
+## Phase 2: Selective Detection and Masking
+
+# Step A: Star Mask Creation
+Star mask uses DAOStarFinder for automatic star identification:
+
+*How does it works?*
+Statistics calculation - Mean, median, and standard deviation with outlier removal (sigma_clipped_stats)
+Source detection - Identifying brightness peaks exceeding threshold (5σ above background)
+Mask generation - Creating circular zones around each detected star
+
+Pros:
+
+This system alows precise detection based on statistical criteria.
+The binary mask enabling targeted processing alows preservation of nebula regions
 
