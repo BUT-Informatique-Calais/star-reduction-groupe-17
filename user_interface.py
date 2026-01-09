@@ -1,3 +1,4 @@
+from statistics import mode
 import tkinter as tk
 from tkinter import filedialog, ttk
 from PIL import Image, ImageTk
@@ -24,6 +25,16 @@ class StarReductionGUI:
         self.threshold_var = tk.DoubleVar(value=5.0)
         self.erosion_iter_var = tk.IntVar(value=6)
         self.ratio_min_var = tk.DoubleVar(value=0.25)
+        self.stretch_var = tk.DoubleVar(value=1.0)
+        self.black_point_var = tk.DoubleVar(value=1.0)
+        
+        # Multi-size reduction parameters
+        self.multi_size_enabled = tk.BooleanVar(value=False)
+        self.small_erosion_var = tk.IntVar(value=3)
+        self.medium_erosion_var = tk.IntVar(value=6)
+        self.large_erosion_var = tk.IntVar(value=9)
+        self.small_threshold_var = tk.DoubleVar(value=0.3)
+        self.large_threshold_var = tk.DoubleVar(value=0.7)
         
         # Cache for optimization
         self.detected_sources = None
@@ -129,18 +140,63 @@ class StarReductionGUI:
         )
         self.status_label.pack(side=tk.LEFT, padx=20)
         
+        self.view_label = tk.Label(
+            top_frame,
+            text="View: RESULT",
+            bg='#2b2b2b',
+            fg='#4a90e2',
+            font=('Arial', 10, 'bold')
+        )
+        self.view_label.pack(side=tk.RIGHT, padx=10)
+
+        
         # Main container
         main_container = tk.Frame(self.root)
         main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Left panel - Controls
-        left_panel = tk.Frame(main_container, bg='#3a3a3a', width=350)
-        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        left_panel.pack_propagate(False)
+        # Left panel - Controls (scrollable)
+        scrollable_frame = tk.Frame(main_container, bg='#3a3a3a', width=350)
+        scrollable_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        scrollable_frame.pack_propagate(False)
+
+        left_canvas = tk.Canvas(
+            scrollable_frame,
+            bg='#3a3a3a',
+            highlightthickness=0
+        )
+        left_scrollbar = ttk.Scrollbar(
+            scrollable_frame,
+            orient="vertical",
+            command=left_canvas.yview
+        )
+        left_canvas.configure(yscrollcommand=left_scrollbar.set)
+
+        left_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scrollable_inner_frame = tk.Frame(left_canvas, bg='#3a3a3a')
+
+        left_canvas.create_window(
+            (0, 0),
+            window=scrollable_inner_frame,
+            anchor="nw"
+        )
+
+        scrollable_inner_frame.bind(
+            "<Configure>",
+            lambda e: left_canvas.configure(
+                scrollregion=left_canvas.bbox("all")
+            )
+        )
+        # Scroll à la molette
+        left_canvas.bind_all(
+            "<MouseWheel>",
+            lambda e: left_canvas.yview_scroll(int(-1*(e.delta/120)), "units")
+        )
         
         # Title
         tk.Label(
-            left_panel, 
+            scrollable_inner_frame, 
             text="Reduction Parameters", 
             bg='#3a3a3a',
             fg='#ffffff',
@@ -148,10 +204,10 @@ class StarReductionGUI:
         ).pack(pady=15)
         
         # Star Detection Section
-        self.create_section(left_panel, "Star Detection")
+        self.create_section(scrollable_inner_frame, "Star Detection")
         
         self.create_slider(
-            left_panel,
+            scrollable_inner_frame,
             "FWHM (star size):",
             self.fwhm_var,
             1.0, 10.0, 0.5,
@@ -159,7 +215,7 @@ class StarReductionGUI:
         )
         
         self.create_slider(
-            left_panel,
+            scrollable_inner_frame,
             "Threshold (σ):",
             self.threshold_var,
             1.0, 15.0, 0.5,
@@ -167,10 +223,10 @@ class StarReductionGUI:
         )
         
         # Reduction Section
-        self.create_section(left_panel, "Reduction Settings")
+        self.create_section(scrollable_inner_frame, "Reduction Settings")
         
         self.create_slider(
-            left_panel,
+            scrollable_inner_frame,
             "Erosion Iterations:",
             self.erosion_iter_var,
             1, 12, 1,
@@ -178,16 +234,103 @@ class StarReductionGUI:
         )
         
         self.create_slider(
-            left_panel,
+            scrollable_inner_frame,
             "Ratio Min:",
             self.ratio_min_var,
             0.0, 1.0, 0.05,
             self.schedule_update
         )
         
+        # Multi-Size Reduction Section
+        self.create_section(scrollable_inner_frame, "Multi-Size Reduction")
+        
+        # Checkbox to enable/disable multi-size
+        multi_size_frame = tk.Frame(scrollable_inner_frame, bg='#3a3a3a')
+        multi_size_frame.pack(pady=5, padx=20, fill=tk.X)
+        
+        tk.Checkbutton(
+            multi_size_frame,
+            text="Enable Multi-Size Reduction",
+            variable=self.multi_size_enabled,
+            bg='#3a3a3a',
+            fg='#cccccc',
+            selectcolor='#4a4a4a',
+            activebackground='#3a3a3a',
+            activeforeground='#ffffff',
+            font=('Arial', 10, 'bold'),
+            command=self.schedule_update
+        ).pack(anchor='w')
+        
+        tk.Label(
+            scrollable_inner_frame,
+            text="Adjust erosion levels per star size:",
+            bg='#3a3a3a',
+            fg='#999999',
+            font=('Arial', 8, 'italic')
+        ).pack(pady=(5, 10), padx=20, anchor='w')
+        
+        self.create_slider(
+            scrollable_inner_frame,
+            "Small Stars (erosion):",
+            self.small_erosion_var,
+            1, 8, 1,
+            self.schedule_update
+        )
+        
+        self.create_slider(
+            scrollable_inner_frame,
+            "Medium Stars (erosion):",
+            self.medium_erosion_var,
+            3, 10, 1,
+            self.schedule_update
+        )
+        
+        self.create_slider(
+            scrollable_inner_frame,
+            "Large Stars (erosion):",
+            self.large_erosion_var,
+            5, 15, 1,
+            self.schedule_update
+        )
+        
+        self.create_slider(
+            scrollable_inner_frame,
+            "Small/Medium Threshold:",
+            self.small_threshold_var,
+            0.1, 0.5, 0.05,
+            self.schedule_update
+        )
+        
+        self.create_slider(
+            scrollable_inner_frame,
+            "Medium/Large Threshold:",
+            self.large_threshold_var,
+            0.5, 0.9, 0.05,
+            self.schedule_update
+        )
+        
+        # Display Section
+        self.create_section(scrollable_inner_frame, "Display Adjustments")
+        
+        self.create_slider(
+            scrollable_inner_frame,
+            "Black Point (%):",
+            self.black_point_var,
+            0.0, 10.0, 0.1,
+            self.schedule_display_update
+        )
+        
+        self.create_slider(
+            scrollable_inner_frame,
+            "Stretch (Gamma):",
+            self.stretch_var,
+            0.1, 3.0, 0.1,
+            self.schedule_display_update
+        )
+        
         # Process button
         tk.Button(
-            left_panel,
+            scrollable_inner_frame,
             text="Apply Reduction",
             command=self.update_preview,
             bg='#e74c3c',
@@ -199,7 +342,7 @@ class StarReductionGUI:
         
         # Stats label
         self.stats_label = tk.Label(
-            left_panel,
+            scrollable_inner_frame,
             text="",
             bg='#3a3a3a',
             fg='#aaaaaa',
@@ -286,6 +429,12 @@ class StarReductionGUI:
             self.root.after_cancel(self.update_timer)
         self.update_timer = self.root.after(300, self.update_preview_fast)
     
+    def schedule_display_update(self):
+        """Update display only (no reprocessing)"""
+        if self.update_timer:
+            self.root.after_cancel(self.update_timer)
+        self.update_timer = self.root.after(100, self.update_display)
+    
     def on_detection_param_change(self):
         """Force full recalculation when detection params change"""
         self.detected_sources = None
@@ -296,15 +445,29 @@ class StarReductionGUI:
         """Change view mode"""
         if self.blink_running:
             self.blink_running = False
+
         self.comparison_mode.set(mode)
+
+        if mode == "original":
+            self.view_label.config(text="View: ORIGINAL", fg="#e67e22")
+        elif mode == "result":
+            self.view_label.config(text="View: RESULT", fg="#4a90e2")
+        elif mode == "side_by_side":
+            self.view_label.config(text="View: BEFORE / AFTER", fg="#9b59b6")
+        elif mode == "blink":
+            self.view_label.config(text="View: BLINK", fg="#f1c40f")
+
         self.update_display()
+
     
     def toggle_blink(self):
         """Toggle blink animation"""
         self.blink_running = not self.blink_running
         if self.blink_running:
             self.comparison_mode.set("blink")
+            self.view_label.config(text="View: BLINK", fg="#f1c40f")
             self.blink_animation()
+
     
     def blink_animation(self):
         """Animate blinking between original and result"""
@@ -355,12 +518,30 @@ class StarReductionGUI:
             self.status_label.config(text=f"Error: {str(e)}", fg='#e74c3c')
     
     def normalize_image(self, img):
+        """Normalize image with percentile clipping and adjustable stretch"""
         if img.ndim == 3:
-            img_norm = (img - img.min()) / (img.max() - img.min() + 1e-6)
+            # For color images, normalize based on combined luminance
+            lum = np.mean(img, axis=2)
+            # Use percentiles to handle extreme values
+            p_low = np.percentile(lum[lum > 0], self.black_point_var.get())
+            p_high = np.percentile(lum[lum > 0], 99.5)
+            
+            img_norm = np.zeros_like(img)
+            for i in range(3):
+                channel = img[:, :, i]
+                # Clip and normalize each channel
+                normalized = np.clip((channel - p_low) / (p_high - p_low + 1e-6), 0, 1)
+                # Apply gamma stretch
+                img_norm[:, :, i] = np.power(normalized, 1.0 / self.stretch_var.get())
         else:
-            img_norm = (img - img.min()) / (img.max() - img.min() + 1e-6)
+            # For monochrome images
+            p_low = np.percentile(img[img > 0], self.black_point_var.get())
+            p_high = np.percentile(img[img > 0], 99.5)
+            normalized = np.clip((img - p_low) / (p_high - p_low + 1e-6), 0, 1)
+            # Apply gamma stretch
+            img_norm = np.power(normalized, 1.0 / self.stretch_var.get())
         
-        return np.clip(img_norm, 0, 1)
+        return img_norm
     
     def update_preview_fast(self):
         """Optimized preview update with color-preserving reduction"""
@@ -379,23 +560,49 @@ class StarReductionGUI:
                 )
                 self.detected_sources = finder(self.luminance - median)
                 
-                if self.detected_sources is None:
-                    self.status_label.config(text="No stars detected", fg='#e74c3c')
+                if self.detected_sources is None or len(self.detected_sources) == 0:
+                    self.status_label.config(text="No stars detected - try adjusting threshold", fg='#ff9800')
+                    # Return original image if no stars detected
+                    self.current_preview = self.original_data.copy()
+                    self.update_display()
                     return
             
             sources = self.detected_sources
             mean, median, std = self.stats_cache
             
-            # Normalize luminance for reduction
-            L_norm = (self.luminance - self.luminance.min()) / (self.luminance.max() - self.luminance.min())
+            # Normalize luminance for reduction using percentiles
+            p_low, p_high = np.percentile(self.luminance[self.luminance > 0], (1, 99.5))
+            L_norm = np.clip((self.luminance - p_low) / (p_high - p_low + 1e-6), 0, 1)
             L_uint8 = (L_norm * 255).astype(np.uint8)
             L_reduced = L_uint8.copy()
+            
+            # Multi-size reduction: calculate flux percentiles for categorization
+            if self.multi_size_enabled.get() and len(sources) > 0:
+                fluxes = np.array([s["flux"] for s in sources])
+                small_threshold = np.percentile(fluxes, self.small_threshold_var.get() * 100)
+                large_threshold = np.percentile(fluxes, self.large_threshold_var.get() * 100)
+                
+                star_counts = {'small': 0, 'medium': 0, 'large': 0}
             
             # Apply erosion on each star
             for star in sources:
                 x = int(star["xcentroid"])
                 y = int(star["ycentroid"])
                 flux = star["flux"]
+                
+                # Determine erosion iterations based on flux (if multi-size enabled)
+                if self.multi_size_enabled.get():
+                    if flux < small_threshold:
+                        erosion_iters = self.small_erosion_var.get()
+                        star_counts['small'] += 1
+                    elif flux < large_threshold:
+                        erosion_iters = self.medium_erosion_var.get()
+                        star_counts['medium'] += 1
+                    else:
+                        erosion_iters = self.large_erosion_var.get()
+                        star_counts['large'] += 1
+                else:
+                    erosion_iters = self.erosion_iter_var.get()
                 
                 diameter = int(np.clip(2.0 * np.sqrt(flux), 3, 25))
                 if diameter % 2 == 0:
@@ -413,7 +620,7 @@ class StarReductionGUI:
                 
                 kernel = np.ones((kernel_size, kernel_size), np.uint8)
                 
-                for _ in range(self.erosion_iter_var.get()):
+                for _ in range(erosion_iters):
                     patch = cv.erode(patch, kernel, iterations=1)
                     if np.count_nonzero(patch > 15) <= 1:
                         break
@@ -441,12 +648,18 @@ class StarReductionGUI:
             self.update_display()
             
             # Update stats
-            self.stats_label.config(
-                text=f"Stars detected: {len(sources)}\n"
-                     f"Mean: {mean:.2f}\n"
-                     f"Median: {median:.2f}\n"
-                     f"Std Dev: {std:.2f}"
-            )
+            stats_text = f"Stars detected: {len(sources)}\n"
+            stats_text += f"Mean: {mean:.2f}\n"
+            stats_text += f"Median: {median:.2f}\n"
+            stats_text += f"Std Dev: {std:.2f}"
+            
+            if self.multi_size_enabled.get():
+                stats_text += f"\n\nStar Size Distribution:\n"
+                stats_text += f"Small: {star_counts['small']}\n"
+                stats_text += f"Medium: {star_counts['medium']}\n"
+                stats_text += f"Large: {star_counts['large']}"
+            
+            self.stats_label.config(text=stats_text)
             
         except Exception as e:
             self.status_label.config(text=f"Processing error: {str(e)}", fg='#e74c3c')
@@ -548,34 +761,37 @@ class StarReductionGUI:
         return img_copy
     
     def display_image(self, img):
-        # Convert to displayable format
+        """Display an image on the canvas"""
+        if img is None:
+            return
+
+        # Convert to uint8 RGB for display
         if img.ndim == 3:
-            display_img = (img * 255).astype(np.uint8)
+            display_img = np.clip(img * 255, 0, 255).astype(np.uint8)
         else:
-            display_img = (img * 255).astype(np.uint8)
+            display_img = np.clip(img * 255, 0, 255).astype(np.uint8)
             display_img = cv.cvtColor(display_img, cv.COLOR_GRAY2RGB)
-        
-        # Resize to fit canvas
+        # Canvas size
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
-        
-        if canvas_width > 1 and canvas_height > 1:
-            h, w = display_img.shape[:2]
-            scale = min(canvas_width / w, canvas_height / h) * 0.95
-            new_w = int(w * scale)
-            new_h = int(h * scale)
-            
-            display_img = cv.resize(display_img, (new_w, new_h), interpolation=cv.INTER_AREA)
-        
+
+        if canvas_width < 2 or canvas_height < 2:
+            return
+        # Resize to fit canvas
+        h, w = display_img.shape[:2]
+        scale = min(canvas_width / w, canvas_height / h) * 0.95
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        display_img = cv.resize(display_img, (new_w, new_h), interpolation=cv.INTER_AREA)
+
         # Convert to PhotoImage
         img_pil = Image.fromarray(display_img)
         self.photo = ImageTk.PhotoImage(img_pil)
-        
-        # Display on canvas
+        # Display
         self.canvas.delete("all")
         self.canvas.create_image(
-            self.canvas.winfo_width() // 2,
-            self.canvas.winfo_height() // 2,
+            canvas_width // 2,
+            canvas_height // 2,
             image=self.photo,
             anchor=tk.CENTER
         )
@@ -584,21 +800,25 @@ class StarReductionGUI:
         if self.current_preview is None:
             self.status_label.config(text="No result to save", fg='#e74c3c')
             return
-        
+
         filename = filedialog.asksaveasfilename(
             defaultextension=".png",
             filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg"), ("All files", "*.*")]
         )
+
+        if not filename:
+            return
+        normalized = self.normalize_image(self.current_preview)
+        img_save = np.clip(normalized * 255, 0, 255).astype(np.uint8)
+
+        if img_save.ndim == 3:
+            img_save = cv.cvtColor(img_save, cv.COLOR_RGB2BGR)
         
-        if filename:
-            normalized = self.normalize_image(self.current_preview)
-            if normalized.ndim == 3:
-                img_save = (normalized * 255).astype(np.uint8)
-            else:
-                img_save = (normalized * 255).astype(np.uint8)
-            
-            cv.imwrite(filename, cv.cvtColor(img_save, cv.COLOR_RGB2BGR))
-            self.status_label.config(text=f"Saved: {filename.split('/')[-1]}", fg='#50c878')
+        cv.imwrite(filename, img_save)
+        self.status_label.config(
+            text=f"Saved: {filename.split('/')[-1]}",
+            fg='#50c878'
+        )
 
 if __name__ == "__main__":
     root = tk.Tk()

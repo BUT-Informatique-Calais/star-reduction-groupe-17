@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter
 
 # Load the FITS image
-fits_file = "./examples/test_M31_linear.fits"
+fits_file = "./examples/orion_xray_low.fits.fits"
 hdul = fits.open(fits_file)
 
 # Get image data from the main HDU
