@@ -68,9 +68,9 @@ for star in sources:
 
     L_reduced[y1:y2, x1:x2] = patch
 
-# =========================
+# ========================
 # 4. COLOR REINJECTION
-# =========================
+# ========================
 L_reduced_f = L_reduced.astype(np.float32) / 255.0
 L_orig_f = L_uint8.astype(np.float32) / 255.0
 
