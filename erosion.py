@@ -53,3 +53,5 @@ cv.imwrite('./results/eroded.png', eroded_image)
 
 # Close the file
 hdul.close()
+
+#presence antoine
