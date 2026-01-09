@@ -18,7 +18,6 @@ hdul.close()
 # Check if the image is color or monochrome
 if data.ndim == 3:
     # Color image case
-    # If channels come first (3, height, width), move them to last position
     if data.shape[0] == 3:
         data = np.transpose(data, (1, 2, 0))
     
