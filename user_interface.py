@@ -14,11 +14,14 @@ class StarReductionGUI:
         self.root.title("Star Reduction Tool")
         self.root.geometry("1400x800")
         
+        
         # Variables
         self.original_data = None
         self.luminance = None
         self.current_preview = None
         self.show_original = False
+        self.auto_detect_var = tk.BooleanVar(value=False)
+
         
         # Default parameters
         self.fwhm_var = tk.DoubleVar(value=3.0)
@@ -205,7 +208,30 @@ class StarReductionGUI:
         
         # Star Detection Section
         self.create_section(scrollable_inner_frame, "Star Detection")
-        
+        auto_frame = tk.Frame(scrollable_inner_frame, bg='#3a3a3a')
+        auto_frame.pack(pady=5, padx=20, fill=tk.X)
+
+        tk.Checkbutton(
+            auto_frame,
+            text="Auto-detection (FWHM + Threshold)",
+            variable=self.auto_detect_var,
+            bg='#3a3a3a',
+            fg='#ffffff',
+            selectcolor='#4a4a4a',
+            activebackground='#3a3a3a',
+            activeforeground='#ffffff',
+            font=('Arial', 10, 'bold'),
+            command=self.on_detection_param_change
+        ).pack(anchor='w')
+
+        tk.Label(
+            auto_frame,
+            text="Automatically estimates star size and detection threshold",
+            bg='#3a3a3a',
+            fg='#999999',
+            font=('Arial', 8, 'italic')
+        ).pack(anchor='w')
+
         self.create_slider(
             scrollable_inner_frame,
             "FWHM (star size):",
@@ -440,6 +466,57 @@ class StarReductionGUI:
         self.detected_sources = None
         self.stats_cache = None
         self.schedule_update()
+        
+    def auto_calibrate_detection(self):
+        """Automatically estimate FWHM and threshold"""
+
+        from scipy.ndimage import gaussian_filter
+
+        # Remove background (important for nebulosity)
+        background = gaussian_filter(self.luminance, sigma=20)
+        image_det = self.luminance - background
+
+        mean, median, std = sigma_clipped_stats(image_det, sigma=3.0)
+
+        # Step 1: permissive detection to estimate FWHM
+        finder_tmp = DAOStarFinder(
+            fwhm=3.0,
+            threshold=2.0 * std
+        )
+        sources_tmp = finder_tmp(image_det)
+
+        if sources_tmp is None or len(sources_tmp) < 5:
+            fwhm_est = 3.0
+        else:
+            if "fwhm" in sources_tmp.colnames:
+                fwhm_est = np.median(sources_tmp["fwhm"])
+            elif "sharpness" in sources_tmp.colnames:
+                # Approximate FWHM from sharpness
+                fwhm_est = np.clip(1.0 / np.median(sources_tmp["sharpness"]), 2.0, 7.0)
+            else:
+                fwhm_est = 3.0
+            
+            fwhm_est = np.clip(float(fwhm_est), 2.0, 7.0)
+
+
+        # Step 2: threshold sweep
+        thresholds = np.linspace(1.5, 4.0, 6)
+        results = []
+
+        for t in thresholds:
+            finder = DAOStarFinder(
+                fwhm=fwhm_est,
+                threshold=t * std
+            )
+            src = finder(image_det)
+            n = 0 if src is None else len(src)
+            results.append((t, n))
+
+        valid = [(t, n) for t, n in results if 20 < n < 3000]
+        best_t = valid[-1][0] if valid else 2.5
+
+        return fwhm_est, best_t, image_det
+
     
     def set_view_mode(self, mode):
         """Change view mode"""
@@ -554,11 +631,25 @@ class StarReductionGUI:
                 mean, median, std = sigma_clipped_stats(self.luminance, sigma=3.0)
                 self.stats_cache = (mean, median, std)
                 
-                finder = DAOStarFinder(
-                    fwhm=self.fwhm_var.get(),
-                    threshold=self.threshold_var.get() * std
-                )
-                self.detected_sources = finder(self.luminance - median)
+                if self.auto_detect_var.get():
+                    fwhm, thresh, image_det = self.auto_calibrate_detection()
+
+                    finder = DAOStarFinder(
+                        fwhm=fwhm,
+                        threshold=thresh * std
+                    )
+                    self.detected_sources = finder(image_det)
+
+                    auto_info = f"Auto FWHM: {fwhm:.2f} px | Auto threshold: {thresh:.2f}σ"
+                else:
+                    finder = DAOStarFinder(
+                        fwhm=self.fwhm_var.get(),
+                        threshold=self.threshold_var.get() * std
+                    )
+                    self.detected_sources = finder(self.luminance - median)
+
+                    auto_info = ""
+
                 
                 if self.detected_sources is None or len(self.detected_sources) == 0:
                     self.status_label.config(text="No stars detected - try adjusting threshold", fg='#ff9800')
@@ -653,11 +744,17 @@ class StarReductionGUI:
             stats_text += f"Median: {median:.2f}\n"
             stats_text += f"Std Dev: {std:.2f}"
             
+            if self.auto_detect_var.get():
+                stats_text += f"\n\n{auto_info}"
+
+            
             if self.multi_size_enabled.get():
                 stats_text += f"\n\nStar Size Distribution:\n"
                 stats_text += f"Small: {star_counts['small']}\n"
                 stats_text += f"Medium: {star_counts['medium']}\n"
                 stats_text += f"Large: {star_counts['large']}"
+                
+
             
             self.stats_label.config(text=stats_text)
             

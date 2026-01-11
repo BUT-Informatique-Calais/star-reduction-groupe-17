@@ -31,7 +31,12 @@ mean, median, std = sigma_clipped_stats(luminance, sigma=3.0)
 daofind = DAOStarFinder(fwhm=3.0, threshold=5.0 * std)
 sources = daofind(luminance - median)
 
-print(f"{len(sources)} étoiles détectées")
+if sources is None:
+    print("Aucune étoile détectée")
+    sources = []
+else:
+    print(f"{len(sources)} étoiles détectées")
+
 
 # =========================
 # 3. LUMINANCE REDUCTION
