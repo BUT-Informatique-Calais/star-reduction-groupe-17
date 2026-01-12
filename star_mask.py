@@ -18,7 +18,6 @@ hdul.close()
 # Check if the image is color or monochrome
 if data.ndim == 3:
     # Color image case
-    # If channels come first (3, height, width), move them to last position
     if data.shape[0] == 3:
         data = np.transpose(data, (1, 2, 0))
     
@@ -39,7 +38,12 @@ daofind = DAOStarFinder(fwhm=3.0, threshold=5.0 * std)
 # Detect stars after removing background
 sources = daofind(luminance - median)
 
-print(f"Number of stars detected: {len(sources)}")
+if sources is None:
+    print("Aucune étoile détectée")
+    sources = []
+else:
+    print(f"Number of stars detected: {len(sources)}")
+
 
 # Create an empty star mask with smooth gradients
 mask = np.zeros(luminance.shape, dtype=np.float32)
@@ -126,14 +130,16 @@ axes[0, 0].set_title("Image originale")
 axes[0, 0].axis("off")
 
 axes[0, 1].imshow(normalize_preserve_color(data))
-axes[0, 1].scatter(
-    sources["xcentroid"],
-    sources["ycentroid"],
-    s=40,
-    facecolors="none",
-    edgecolors="green",
-    linewidths=0.8
-)
+if len(sources) > 0:
+    axes[0, 1].scatter(
+        sources["xcentroid"],
+        sources["ycentroid"],
+        s=40,
+        facecolors="none",
+        edgecolors="green",
+        linewidths=0.8
+    )
+
 axes[0, 1].set_title(f"Étoiles détectées ({len(sources)})")
 axes[0, 1].axis("off")
 
